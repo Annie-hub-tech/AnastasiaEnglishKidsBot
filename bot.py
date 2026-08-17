@@ -35,9 +35,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.data == "reviews":
-        await query.message.reply_text("💬 Здесь скоро появятся отзывы родителей и учеников.")
+        await query.message.reply_text("💬 Отзывы родителей:")
+
+        review_files = ["review1.jpg", "review2.jpg", "review3.jpg"]
+
+        for file_name in review_files:
+            with open(file_name, "rb") as photo:
+                await query.message.reply_photo(photo)
     elif query.data == "slots":
         await query.message.reply_text("🗓 Здесь будут отображаться свободные окошки для занятий.")
     elif query.data == "signup":
@@ -51,4 +56,5 @@ def main():
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    main()    
+
