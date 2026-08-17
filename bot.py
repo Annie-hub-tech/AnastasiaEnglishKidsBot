@@ -1,98 +1,54 @@
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    text = """
-👋 Привет!
-
-Я персональный ассистент Анастасии Александровны.
-
-Анастасия Александровна — преподаватель английского языка для детей.
-
-Она помогает дошкольникам и школьникам изучать английский легко,
-интересно и с уверенностью.
-
-На занятиях:
-✨ развиваем разговорную речь
-✨ изучаем грамматику и лексику
-✨ учимся понимать английскую речь
-✨ занимаемся в комфортной атмосфере
-"""
-
     keyboard = [
-        [
-            InlineKeyboardButton(
-                "⭐ Отзывы",
-                callback_data="reviews"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "📅 Свободные окна",
-                callback_data="slots"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎓 Записаться на урок",
-                callback_data="signup"
-            )
-        ]
+        [InlineKeyboardButton("💬 Отзывы", callback_data="reviews")],
+        [InlineKeyboardButton("🗓 Свободные окошки", callback_data="slots")],
+        [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup")]
     ]
 
-    await update.message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    text = (
+        "Привет! 🌷\n\n"
+        "Рада видеть вас здесь.\n\n"
+        "Я — помощник Анастасии Александровны, преподавателя английского языка для детей.\n\n"
+        "Здесь можно спокойно познакомиться с Анастасией Александровной, "
+        "почитать отзывы родителей, посмотреть свободные окошки "
+        "и выбрать удобное время для занятия.\n\n"
+        "Анастасия Александровна помогает детям учить английский "
+        "без страха ошибок, с интересом и в комфортной атмосфере.\n\n"
+        "Она работает с дошкольниками 6–7 лет и школьниками 1–11 классов, "
+        "индивидуально, в мини-группах и онлайн.\n\n"
+        "Выберите, что хотите посмотреть 👇"
     )
 
+    with open("welcome.png", "rb") as photo:
+        await update.message.reply_photo(
+            photo=photo,
+            caption=text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
     if query.data == "reviews":
-        await query.message.reply_text(
-            "⭐ Здесь скоро появятся отзывы учеников."
-        )
-
+        await query.message.reply_text("💬 Здесь скоро появятся отзывы родителей и учеников.")
     elif query.data == "slots":
-        await query.message.reply_text(
-            "📅 Здесь будут свободные окна для занятий."
-        )
-
+        await query.message.reply_text("🗓 Здесь будут отображаться свободные окошки для занятий.")
     elif query.data == "signup":
-        await query.message.reply_text(
-            "🎓 Для записи напишите мне:\n\n"
-            "Имя ребёнка\n"
-            "Возраст\n"
-            "Удобное время"
-        )
-
+        await query.message.reply_text("✨ Здесь можно будет выбрать свободное время и записаться на урок.")
 
 def main():
-
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(
-        CallbackQueryHandler(buttons)
-    )
-
+    app.add_handler(CallbackQueryHandler(buttons))
     print("Bot started")
-
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
