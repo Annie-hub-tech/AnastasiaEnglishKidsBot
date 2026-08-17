@@ -38,8 +38,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "reviews":
         await query.message.reply_text("💬 Отзывы родителей:")
 
-        review_files = ["review1.jpg", "review2.jpg", "review3.jpg"]
-
+        review_files = [
+    "review1.jpg",
+    "review2.jpg",
+    "review3.jpg",
+    "review4.jpg",
+    "review5.jpg"
+]
         for file_name in review_files:
             with open(file_name, "rb") as photo:
                 await query.message.reply_photo(photo)
