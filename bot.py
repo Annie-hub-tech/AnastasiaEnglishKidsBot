@@ -1,98 +1,174 @@
 import os
 import json
 import base64
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from datetime import datetime
+
 import gspread
-import google.auth
+from google.oauth2.service_account import Credentials
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+
 
 TOKEN = os.getenv("BOT_TOKEN", "").replace("\n", "").replace("\r", "").strip()
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 
-# Google Sheets API
-def get_google_sheets_client():
-    """Инициализирует клиент Google Sheets"""
+ASKING_NAME, ASKING_AGE, ASKING_PARENT, CONFIRMING = range(4)
+
+
+# =========================
+# GOOGLE SHEETS
+# =========================
+
+def get_google_sheet():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+
+    creds_b64 = os.getenv("GOOGLE_CREDENTIALS_B64", "").strip()
+
+    if creds_b64:
+        creds_json = base64.b64decode(creds_b64).decode("utf-8")
+        creds_info = json.loads(creds_json)
+
+        credentials = Credentials.from_service_account_info(
+            creds_info,
+            scopes=scopes,
+        )
+    else:
+        with open("credentials.json", "r", encoding="utf-8") as file:
+            creds_info = json.load(file)
+
+        credentials = Credentials.from_service_account_info(
+            creds_info,
+            scopes=scopes,
+        )
+
+    client = gspread.authorize(credentials)
+
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    return spreadsheet.worksheet("Slots")
+
+
+def get_available_slots():
     try:
-        creds_dict = None
-
-        # Попытка загрузить из переменной окружения (base64)
-        creds_b64 = os.getenv("GOOGLE_CREDENTIALS_B64", "").strip()
-        if creds_b64:
-            try:
-                creds_json = base64.b64decode(creds_b64).decode('utf-8')
-                creds_dict = json.loads(creds_json)
-            except Exception as e:
-                print(f"Error decoding GOOGLE_CREDENTIALS_B64: {e}")
-                return None
-        else:
-            # Попытка загрузить локальный credentials.json
-            try:
-                with open("credentials.json", "r") as f:
-                    creds_dict = json.load(f)
-            except FileNotFoundError:
-                print("credentials.json not found and GOOGLE_CREDENTIALS_B64 not set")
-                return None
-
-        if not creds_dict:
-            return None
-
-        scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-        credentials, _ = google.auth.load_credentials_from_dict(creds_dict, scopes=scopes)
-        client = gspread.authorize(credentials)
-        return client
-    except Exception as e:
-        print(f"Error initializing Google Sheets: {e}")
-        return None
-
-async def get_available_slots():
-    """Загружает свободные окошки из Google Sheets"""
-    if not SPREADSHEET_ID:
-        return None, "⚠️ Google Sheets не настроена (SPREADSHEET_ID не установлен)"
-
-    try:
-        client = get_google_sheets_client()
-        if not client:
-            return None, "⚠️ Не удается подключиться к Google Sheets. Пожалуйста, попробуйте позже."
-
-        sheet = client.open_by_key(SPREADSHEET_ID)
-        worksheet = sheet.worksheet("Slots")
-
-        # Получаем все данные
+        worksheet = get_google_sheet()
         records = worksheet.get_all_records()
 
-        # Фильтруем только доступные слоты (STATUS = "Available")
-        available_slots = [
-            {"date": r.get("DATE", ""), "time": r.get("TIME", "")}
-            for r in records
-            if r.get("STATUS", "").strip().lower() == "available"
-        ]
+        slots = []
 
-        if not available_slots:
-            return [], "На данный момент свободных окошек нет. Проверьте позже!"
+        for row in records:
+            status = str(row.get("STATUS", "")).strip().lower()
 
-        return available_slots, None
+            if status == "available":
+                date_value = str(row.get("DATE", "")).strip()
+                time_value = str(row.get("TIME", "")).strip()
 
-    except gspread.exceptions.SpreadsheetNotFound:
-        return None, "⚠️ Google Sheet не найдена. Проверьте SPREADSHEET_ID."
-    except gspread.exceptions.WorksheetNotFound:
-        return None, "⚠️ Лист 'Slots' не найден в таблице."
-    except Exception as e:
-        import traceback
-        print(f"Error loading slots: {e}")
-        traceback.print_exc()
-        return None, "⚠️ Не удалось загрузить расписание. Пожалуйста, попробуйте позже."
+                if date_value and time_value:
+                    slots.append(
+                        {
+                            "date": date_value,
+                            "time": time_value,
+                        }
+                    )
+
+        return slots
+
+    except Exception as error:
+        print("Error loading slots:", type(error).__name__)
+        return None
+
+
+def find_slot_row(worksheet, date_value, time_value):
+    records = worksheet.get_all_records()
+
+    for row_number, row in enumerate(records, start=2):
+        row_date = str(row.get("DATE", "")).strip()
+        row_time = str(row.get("TIME", "")).strip()
+
+        if row_date == date_value and row_time == time_value:
+            return row_number
+
+    return None
+
+
+def save_booking(
+    date_value,
+    time_value,
+    student_name,
+    age,
+    parent_name,
+    telegram_username,
+    telegram_user_id,
+):
+    try:
+        worksheet = get_google_sheet()
+
+        row_number = find_slot_row(
+            worksheet,
+            date_value,
+            time_value,
+        )
+
+        if row_number is None:
+            return "not_found"
+
+        # Ещё раз проверяем статус непосредственно перед записью
+        current_status = str(
+            worksheet.cell(row_number, 3).value or ""
+        ).strip().lower()
+
+        if current_status != "available":
+            return "slot_taken"
+
+        booked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        worksheet.update(
+            range_name=f"C{row_number}:I{row_number}",
+            values=[
+                [
+                    "Booked",
+                    student_name,
+                    age,
+                    parent_name,
+                    telegram_username or "",
+                    telegram_user_id,
+                    booked_at,
+                ]
+            ],
+        )
+
+        return "success"
+
+    except Exception as error:
+        print("Error saving booking:", type(error).__name__)
+        return "error"
+
+
+# =========================
+# START
+# =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
     keyboard = [
         [InlineKeyboardButton("💬 Отзывы", callback_data="reviews")],
         [InlineKeyboardButton("🗓 Свободные окошки", callback_data="slots")],
-        [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup")]
+        [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup")],
     ]
 
     text = (
         "Привет! 🌷\n\n"
         "Рада видеть вас здесь.\n\n"
-        "Я — помощник Анастасии Александровны, преподавателя английского языка для детей.\n\n"
+        "Я — помощник Анастасии Александровны, "
+        "преподавателя английского языка для детей.\n\n"
         "Здесь можно спокойно познакомиться с Анастасией Александровной, "
         "почитать отзывы родителей, посмотреть свободные окошки "
         "и выбрать удобное время для занятия.\n\n"
@@ -107,69 +183,422 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_photo(
             photo=photo,
             caption=text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard),
         )
+
+
+# =========================
+# ОТЗЫВЫ И СЛОТЫ
+# =========================
+
+async def send_slots_message(query):
+    slots = get_available_slots()
+
+    if slots is None:
+        await query.message.reply_text(
+            "⚠️ Не удалось загрузить расписание. "
+            "Пожалуйста, попробуйте немного позже."
+        )
+        return
+
+    if not slots:
+        await query.message.reply_text(
+            "🌷 Сейчас свободных окошек нет. "
+            "Пожалуйста, загляните позже."
+        )
+        return
+
+    keyboard = []
+
+    for slot in slots:
+        date_value = slot["date"]
+        time_value = slot["time"]
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"🗓 {date_value} в {time_value}",
+                    callback_data=f"book_slot_{date_value}_{time_value}",
+                )
+            ]
+        )
+
+    await query.message.reply_text(
+        "🗓 Выберите удобное окошко:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if query.data == "reviews":
         await query.message.reply_text("💬 Отзывы родителей:")
 
         review_files = [
-    "review1.jpg",
-    "review2.jpg",
-    "review3.jpg",
-    "review4.jpg",
-    "review5.jpg"
-]
+            "review1.jpg",
+            "review2.jpg",
+            "review3.jpg",
+            "review4.jpg",
+            "review5.jpg",
+        ]
+
         for file_name in review_files:
             with open(file_name, "rb") as photo:
                 await query.message.reply_photo(photo)
+
     elif query.data == "slots":
-        available_slots, error = await get_available_slots()
+        await send_slots_message(query)
 
-        if error:
-            await query.message.reply_text(error, parse_mode="HTML")
-            return
+    elif query.data == "signup":
+        await query.message.reply_text(
+            "✨ Выберите удобное свободное время:"
+        )
+        await send_slots_message(query)
 
-        if not available_slots:
-            await query.message.reply_text("На данный момент свободных окошек нет. Проверьте позже!", parse_mode="HTML")
-            return
 
-        slots_text = "🗓 <b>Свободные окошки:</b>\n\n"
-        for slot in available_slots:
-            date = slot.get("date", "")
-            time = slot.get("time", "")
-            slots_text += f"• {date} {time}\n"
+# =========================
+# ЗАПИСЬ НА УРОК
+# =========================
 
-        slots_keyboard = [
-            [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup_from_slots")]
+def cancel_keyboard():
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "❌ Отмена",
+                    callback_data="cancel_booking",
+                )
+            ]
         ]
+    )
 
+
+async def handle_slot_selection(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    await query.answer()
+
+    slot_data = query.data.removeprefix("book_slot_")
+
+    try:
+        date_value, time_value = slot_data.split("_", 1)
+    except ValueError:
         await query.message.reply_text(
-            slots_text,
-            reply_markup=InlineKeyboardMarkup(slots_keyboard),
-            parse_mode="HTML"
+            "Не удалось определить выбранное время."
         )
-    elif query.data in ("signup", "signup_from_slots"):
+        return ConversationHandler.END
+
+    context.user_data.clear()
+
+    context.user_data["selected_date"] = date_value
+    context.user_data["selected_time"] = time_value
+
+    user = update.effective_user
+
+    context.user_data["telegram_user_id"] = user.id
+    context.user_data["telegram_username"] = user.username or ""
+
+    await query.message.reply_text(
+        f"✨ Вы выбрали:\n"
+        f"🗓 {date_value}\n"
+        f"🕒 {time_value}\n\n"
+        "Как зовут ребёнка?",
+        reply_markup=cancel_keyboard(),
+    )
+
+    return ASKING_NAME
+
+
+async def ask_age(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    student_name = update.message.text.strip()
+
+    if not student_name:
+        await update.message.reply_text(
+            "Пожалуйста, напишите имя ребёнка.",
+            reply_markup=cancel_keyboard(),
+        )
+        return ASKING_NAME
+
+    context.user_data["student_name"] = student_name
+
+    await update.message.reply_text(
+        "Сколько лет ребёнку?",
+        reply_markup=cancel_keyboard(),
+    )
+
+    return ASKING_AGE
+
+
+async def ask_parent(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    age_text = update.message.text.strip()
+
+    if not age_text.isdigit():
+        await update.message.reply_text(
+            "Напишите возраст цифрами, например: 8",
+            reply_markup=cancel_keyboard(),
+        )
+        return ASKING_AGE
+
+    age = int(age_text)
+
+    if age < 3 or age > 18:
+        await update.message.reply_text(
+            "Проверьте возраст ребёнка и введите его ещё раз.",
+            reply_markup=cancel_keyboard(),
+        )
+        return ASKING_AGE
+
+    context.user_data["age"] = age
+
+    await update.message.reply_text(
+        "Как зовут родителя?",
+        reply_markup=cancel_keyboard(),
+    )
+
+    return ASKING_PARENT
+
+
+async def confirm_booking(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    parent_name = update.message.text.strip()
+
+    if not parent_name:
+        await update.message.reply_text(
+            "Пожалуйста, напишите имя родителя.",
+            reply_markup=cancel_keyboard(),
+        )
+        return ASKING_PARENT
+
+    context.user_data["parent_name"] = parent_name
+
+    date_value = context.user_data["selected_date"]
+    time_value = context.user_data["selected_time"]
+    student_name = context.user_data["student_name"]
+    age = context.user_data["age"]
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✅ Да, записаться",
+                callback_data="confirm_booking",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "❌ Отмена",
+                callback_data="cancel_booking",
+            )
+        ],
+    ]
+
+    await update.message.reply_text(
+        "Проверьте данные 🌷\n\n"
+        f"🗓 Дата: {date_value}\n"
+        f"🕒 Время: {time_value}\n"
+        f"👧 Ребёнок: {student_name}\n"
+        f"🎂 Возраст: {age}\n"
+        f"👤 Родитель: {parent_name}\n\n"
+        "Всё правильно?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+    return CONFIRMING
+
+
+async def process_booking(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+    await query.answer()
+
+    required_keys = [
+        "selected_date",
+        "selected_time",
+        "student_name",
+        "age",
+        "parent_name",
+        "telegram_user_id",
+    ]
+
+    if not all(key in context.user_data for key in required_keys):
         await query.message.reply_text(
-            "✨ <b>Запись на урок</b>\n\n"
-            "Пожалуйста, напишите:\n"
-            "1. Имя ребенка\n"
-            "2. Возраст\n"
-            "3. Удобное время\n\n"
-            "Анастасия Александровна свяжется с вами в течение 24 часов.",
-            parse_mode="HTML"
+            "Данные записи потерялись. "
+            "Пожалуйста, выберите время ещё раз."
         )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    result = save_booking(
+        date_value=context.user_data["selected_date"],
+        time_value=context.user_data["selected_time"],
+        student_name=context.user_data["student_name"],
+        age=context.user_data["age"],
+        parent_name=context.user_data["parent_name"],
+        telegram_username=context.user_data.get(
+            "telegram_username",
+            "",
+        ),
+        telegram_user_id=context.user_data["telegram_user_id"],
+    )
+
+    date_value = context.user_data["selected_date"]
+    time_value = context.user_data["selected_time"]
+
+    if result == "success":
+        await query.message.reply_text(
+            "✅ Запись подтверждена!\n\n"
+            f"🗓 {date_value}\n"
+            f"🕒 {time_value}\n\n"
+            "Анастасия Александровна свяжется с вами 🌷"
+        )
+
+    elif result == "slot_taken":
+        await query.message.reply_text(
+            "🙏 Это окошко уже занято.\n\n"
+            "Нажмите «Свободные окошки» "
+            "и выберите другое время."
+        )
+
+    elif result == "not_found":
+        await query.message.reply_text(
+            "Не удалось найти это время в расписании. "
+            "Пожалуйста, выберите другое."
+        )
+
+    else:
+        await query.message.reply_text(
+            "⚠️ Не удалось сохранить запись. "
+            "Пожалуйста, попробуйте немного позже."
+        )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def cancel_booking(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    query = update.callback_query
+
+    if query:
+        await query.answer()
+        await query.message.reply_text("Запись отменена 🌷")
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def restart_during_booking(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    context.user_data.clear()
+    await start(update, context)
+    return ConversationHandler.END
+
+
+# =========================
+# ЗАПУСК
+# =========================
 
 def main():
+    if not TOKEN:
+        raise RuntimeError("BOT_TOKEN is not set")
+
+    if not SPREADSHEET_ID:
+        print("Warning: SPREADSHEET_ID is not set")
+
     app = Application.builder().token(TOKEN).build()
+
+    booking_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                handle_slot_selection,
+                pattern=r"^book_slot_",
+            )
+        ],
+        states={
+            ASKING_NAME: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    ask_age,
+                ),
+                CallbackQueryHandler(
+                    cancel_booking,
+                    pattern=r"^cancel_booking$",
+                ),
+            ],
+            ASKING_AGE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    ask_parent,
+                ),
+                CallbackQueryHandler(
+                    cancel_booking,
+                    pattern=r"^cancel_booking$",
+                ),
+            ],
+            ASKING_PARENT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    confirm_booking,
+                ),
+                CallbackQueryHandler(
+                    cancel_booking,
+                    pattern=r"^cancel_booking$",
+                ),
+            ],
+            CONFIRMING: [
+                CallbackQueryHandler(
+                    process_booking,
+                    pattern=r"^confirm_booking$",
+                ),
+                CallbackQueryHandler(
+                    cancel_booking,
+                    pattern=r"^cancel_booking$",
+                ),
+            ],
+        },
+        fallbacks=[
+            CommandHandler(
+                "start",
+                restart_during_booking,
+            ),
+            CallbackQueryHandler(
+                cancel_booking,
+                pattern=r"^cancel_booking$",
+            ),
+        ],
+        conversation_timeout=1800,
+    )
+
+    # ConversationHandler ставим первым:
+    # во время записи он должен перехватывать свои события.
+    app.add_handler(booking_handler)
+
+    # Обычный /start, когда пользователь не находится в сценарии записи.
     app.add_handler(CommandHandler("start", start))
+
+    # Остальные кнопки меню.
     app.add_handler(CallbackQueryHandler(buttons))
+
     print("Bot started")
     app.run_polling()
 
+
 if __name__ == "__main__":
     main()
-
