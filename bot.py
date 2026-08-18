@@ -29,6 +29,56 @@ else:
 ASKING_NAME, ASKING_AGE, ASKING_PARENT, CONFIRMING = range(4)
 
 
+def format_russian_date(date_string: str, short_weekday: bool = False):
+    """Format YYYY-MM-DD as a Russian date without using the system locale."""
+    try:
+        parsed_date = datetime.strptime(date_string, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return date_string
+
+    short_day_of_week = {
+        0: "Пн",
+        1: "Вт",
+        2: "Ср",
+        3: "Чт",
+        4: "Пт",
+        5: "Сб",
+        6: "Вс",
+    }
+    full_day_of_week = {
+        0: "Понедельник",
+        1: "Вторник",
+        2: "Среда",
+        3: "Четверг",
+        4: "Пятница",
+        5: "Суббота",
+        6: "Воскресенье",
+    }
+    months = {
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
+    }
+
+    weekday_key = parsed_date.weekday()
+    weekday_name = (
+        short_day_of_week[weekday_key]
+        if short_weekday
+        else full_day_of_week[weekday_key]
+    )
+
+    return f"{weekday_name}, {parsed_date.day} {months[parsed_date.month]}"
+
+
 # =========================
 # GOOGLE SHEETS
 # =========================
@@ -219,10 +269,12 @@ async def send_slots_message(query):
         date_value = slot["date"]
         time_value = slot["time"]
 
+        formatted_date = format_russian_date(date_value, short_weekday=True)
+
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    f"🗓 {date_value} в {time_value}",
+                    f"📅 {format_russian_date(date_value)}\n",
                     callback_data=f"book_slot_{date_value}_{time_value}",
                 )
             ]
@@ -309,7 +361,7 @@ async def handle_slot_selection(
 
     await query.message.reply_text(
         f"✨ Вы выбрали:\n"
-        f"🗓 {date_value}\n"
+        f"📅 {format_russian_date(date_value)}\n"
         f"🕒 {time_value}\n\n"
         "Как зовут ребёнка?",
         reply_markup=cancel_keyboard(),
@@ -410,7 +462,7 @@ async def confirm_booking(
 
     await update.message.reply_text(
         "Проверьте данные 🌷\n\n"
-        f"🗓 Дата: {date_value}\n"
+        f"📅 {format_russian_date(date_value)}\n"
         f"🕒 Время: {time_value}\n"
         f"👧 Ребёнок: {student_name}\n"
         f"🎂 Возраст: {age}\n"
@@ -465,7 +517,7 @@ async def process_booking(
     if result == "success":
         await query.message.reply_text(
             "✅ Запись подтверждена!\n\n"
-            f"🗓 {date_value}\n"
+            f"� {format_russian_date(date_value)}\n"
             f"🕒 {time_value}\n\n"
             "Анастасия Александровна свяжется с вами 🌷"
         )
