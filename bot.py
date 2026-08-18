@@ -214,6 +214,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
     keyboard = [
+        [InlineKeyboardButton("👩‍🏫 Обо мне кратко", callback_data="about")],
         [InlineKeyboardButton("💬 Отзывы", callback_data="reviews")],
         [InlineKeyboardButton("🗓 Свободные окошки", callback_data="slots")],
         [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup")],
