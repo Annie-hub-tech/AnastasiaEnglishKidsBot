@@ -4,6 +4,17 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 TOKEN = os.getenv("BOT_TOKEN", "").replace("\n", "").replace("\r", "").strip()
 
+# Список свободных окошек для занятий
+AVAILABLE_SLOTS = [
+    "Пн 15:00",
+    "Пн 17:00",
+    "Ср 16:00",
+    "Чт 15:30",
+    "Пт 17:00",
+    "Сб 10:00",
+    "Сб 14:00"
+]
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💬 Отзывы", callback_data="reviews")],
@@ -49,9 +60,29 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with open(file_name, "rb") as photo:
                 await query.message.reply_photo(photo)
     elif query.data == "slots":
-        await query.message.reply_text("🗓 Здесь будут отображаться свободные окошки для занятий.")
-    elif query.data == "signup":
-        await query.message.reply_text("✨ Здесь можно будет выбрать свободное время и записаться на урок.")
+        slots_text = "🗓 <b>Свободные окошки:</b>\n\n"
+        for slot in AVAILABLE_SLOTS:
+            slots_text += f"• {slot}\n"
+        
+        slots_keyboard = [
+            [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup_from_slots")]
+        ]
+        
+        await query.message.reply_text(
+            slots_text,
+            reply_markup=InlineKeyboardMarkup(slots_keyboard),
+            parse_mode="HTML"
+        )
+    elif query.data in ("signup", "signup_from_slots"):
+        await query.message.reply_text(
+            "✨ <b>Запись на урок</b>\n\n"
+            "Пожалуйста, напишите:\n"
+            "1. Имя ребенка\n"
+            "2. Возраст\n"
+            "3. Удобное время\n\n"
+            "Анастасия Александровна свяжется с вами в течение 24 часов.",
+            parse_mode="HTML"
+        )
 
 def main():
     app = Application.builder().token(TOKEN).build()
