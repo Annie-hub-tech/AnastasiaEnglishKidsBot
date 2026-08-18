@@ -6,7 +6,7 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -27,6 +27,27 @@ else:
     ADMIN_ID = None
 
 ASKING_NAME, ASKING_AGE, ASKING_PARENT, CONFIRMING = range(4)
+
+
+ABOUT_TEXT = (
+    "👩‍🏫 Обо мне кратко\n\n"
+    "Меня зовут Анастасия Александровна. Я преподаватель английского языка "
+    "с высшим филологическим образованием и большим опытом работы с детьми.\n\n"
+    "В своей работе я сочетаю системный подход, понятное объяснение материала "
+    "и комфортную атмосферу для ребёнка.\n\n"
+    "✅ Высшее филологическое образование\n"
+    "✅ Опыт работы устным переводчиком\n"
+    "✅ Более 16 лет преподавания детям\n"
+    "✅ Регулярное участие в профессиональных конференциях по лингвистике "
+    "и обучению детей\n\n"
+    "Мои ученики не просто улучшают оценки — они начинают лучше понимать английский, "
+    "увереннее говорить, перестают бояться ошибок и постепенно чувствуют себя "
+    "свободнее в языке.\n\n"
+    "Для меня особенно важно видеть реальный прогресс ребёнка и выстраивать обучение "
+    "так, чтобы занятия давали результат без постоянного стресса и давления 🌷\n\n"
+    "За годы работы десятки учеников добились заметных успехов, а положительные отзывы "
+    "родителей стали для меня лучшим подтверждением качества моей работы."
+)
 
 
 def format_russian_date(date_string: str, short_weekday: bool = False):
@@ -243,6 +264,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(ABOUT_TEXT)
+
+
 # =========================
 # ОТЗЫВЫ И СЛОТЫ
 # =========================
@@ -275,7 +300,7 @@ async def send_slots_message(query):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    f"📅 {format_russian_date(date_value)}\n",
+                    f"{formatted_date} · {time_value}",
                     callback_data=f"book_slot_{date_value}_{time_value}",
                 )
             ]
@@ -291,7 +316,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "reviews":
+    if query.data == "about":
+        await query.message.reply_text(ABOUT_TEXT)
+
+    elif query.data == "reviews":
         await query.message.reply_text("💬 Отзывы родителей:")
 
         review_files = [
@@ -518,7 +546,7 @@ async def process_booking(
     if result == "success":
         await query.message.reply_text(
             "✅ Запись подтверждена!\n\n"
-            f"� {format_russian_date(date_value)}\n"
+            f"📅 {format_russian_date(date_value)}\n"
             f"🕒 {time_value}\n\n"
             "Анастасия Александровна свяжется с вами 🌷"
         )
@@ -591,6 +619,15 @@ async def restart_during_booking(
 # ЗАПУСК
 # =========================
 
+async def setup_bot_commands(application: Application):
+    await application.bot.set_my_commands(
+        [
+            BotCommand("start", "Главное меню"),
+            BotCommand("about", "Обо мне кратко"),
+        ]
+    )
+
+
 def main():
     if not TOKEN:
         raise RuntimeError("BOT_TOKEN is not set")
@@ -598,7 +635,12 @@ def main():
     if not SPREADSHEET_ID:
         print("Warning: SPREADSHEET_ID is not set")
 
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(setup_bot_commands)
+        .build()
+    )
 
     booking_handler = ConversationHandler(
         entry_points=[
@@ -668,6 +710,7 @@ def main():
 
     # Обычный /start, когда пользователь не находится в сценарии записи.
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("about", about))
 
     # Остальные кнопки меню.
     app.add_handler(CallbackQueryHandler(buttons))
