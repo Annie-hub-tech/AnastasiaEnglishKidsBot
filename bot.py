@@ -20,6 +20,11 @@ from telegram.ext import (
 
 TOKEN = os.getenv("BOT_TOKEN", "").replace("\n", "").replace("\r", "").strip()
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
+ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
+if ADMIN_ID and ADMIN_ID.isdigit():
+    ADMIN_ID = int(ADMIN_ID)
+else:
+    ADMIN_ID = None
 
 ASKING_NAME, ASKING_AGE, ASKING_PARENT, CONFIRMING = range(4)
 
@@ -464,6 +469,24 @@ async def process_booking(
             f"🕒 {time_value}\n\n"
             "Анастасия Александровна свяжется с вами 🌷"
         )
+
+        if ADMIN_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_ID,
+                    text=(
+                        "✅ Новая запись на урок\n\n"
+                        f"🗓 Дата: {date_value}\n"
+                        f"🕒 Время: {time_value}\n"
+                        f"👧 Ребёнок: {context.user_data['student_name']}\n"
+                        f"🎂 Возраст: {context.user_data['age']}\n"
+                        f"👤 Родитель: {context.user_data['parent_name']}\n"
+                        f"@{context.user_data.get('telegram_username', '') or 'unknown'}\n"
+                        f"ID: {context.user_data['telegram_user_id']}"
+                    ),
+                )
+            except Exception:
+                pass
 
     elif result == "slot_taken":
         await query.message.reply_text(
