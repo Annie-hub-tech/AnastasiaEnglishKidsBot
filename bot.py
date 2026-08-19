@@ -236,11 +236,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton("👩‍🏫 Обо мне кратко", callback_data="about")],
+        [InlineKeyboardButton("🤖 Задать вопрос", callback_data="chat")],
         [InlineKeyboardButton("💬 Отзывы", callback_data="reviews")],
         [InlineKeyboardButton("🗓 Свободные окошки", callback_data="slots")],
         [InlineKeyboardButton("✨ Записаться на урок", callback_data="signup")],
     ]
-
     text = (
         "Привет! 🌷\n\n"
         "Рада видеть вас здесь.\n\n"
@@ -312,6 +312,17 @@ async def send_slots_message(query):
     )
 
 
+async def handle_chat(query):
+    # Здесь позже будет подключён OpenAI API для обработки вопроса пользователя.
+    await query.message.reply_text(
+        "Здравствуйте! 🌷\n"
+        "Я личный AI-помощник Анастасии Александровны.\n"
+        "Я могу ответить на вопросы о занятиях, стоимости, расписании, "
+        "формате обучения и подходе к занятиям.\n\n"
+        "Задайте Ваш вопрос, и я постараюсь помочь."
+    )
+
+
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -336,6 +347,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "slots":
         await send_slots_message(query)
+
+    elif query.data == "chat":
+        await handle_chat(query)
 
     elif query.data == "signup":
         await query.message.reply_text(
