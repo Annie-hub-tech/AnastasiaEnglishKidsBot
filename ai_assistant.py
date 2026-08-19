@@ -1,9 +1,16 @@
 import os
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+KIE_AI_ASSISTANT_KEY = os.getenv("KIE_AI_ASSISTANT_KEY", "").strip()
+client = (
+    AsyncOpenAI(
+        api_key=KIE_AI_ASSISTANT_KEY,
+        base_url="https://api.kie.ai/gemini-2.5-flash/v1",
+    )
+    if KIE_AI_ASSISTANT_KEY
+    else None
+)
 
 
 SYSTEM_PROMPT = """
@@ -93,26 +100,33 @@ AI-помощник может помочь с общими вопросами:
 
 async def ask_ai(question: str):
     """
-    Отправляет вопрос пользователя в OpenAI
+    Отправляет вопрос пользователя в Kie.ai
     и возвращает ответ AI-помощника.
     """
 
     if client is None:
-        raise RuntimeError("OPENAI_API_KEY is not set")
+        error = "KIE_AI_ASSISTANT_KEY is not set"
+        print("Kie.ai error:", error)
+        raise RuntimeError(error)
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": question
-            }
-        ],
-        temperature=0.3
-    )
+    try:
+        response = await client.chat.completions.create(
+            model="gemini-2.5-flash",
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": question
+                }
+            ],
+            temperature=0.3,
+        )
+    except Exception as error:
+        print("Kie.ai error:", type(error).__name__, str(error))
+        raise
 
+    print("Kie.ai response generated")
     return response.choices[0].message.content

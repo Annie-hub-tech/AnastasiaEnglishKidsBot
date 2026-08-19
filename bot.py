@@ -344,7 +344,7 @@ async def handle_chat_message(
     await update.message.reply_text("Минутку, я готовлю ответ 🌷")
 
     try:
-        print("Calling OpenAI")
+        print("Calling Kie.ai")
         answer = await ask_ai(question)
     except Exception as error:
         print(
