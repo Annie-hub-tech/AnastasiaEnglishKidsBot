@@ -11,10 +11,9 @@ client = None
 
 if KIE_API_KEY:
     client = AsyncOpenAI(
-        api_key=KIE_API_KEY,
-        base_url="https://api.kie.ai"
-    )
-
+    api_key=KIE_API_KEY,
+    base_url="https://api.kie.ai/gemini-2.5-flash/v1"
+)
 
 def load_file(path: Path) -> str:
     try:
