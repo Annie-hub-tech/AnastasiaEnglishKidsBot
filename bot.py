@@ -5,6 +5,7 @@ from datetime import datetime
 
 import gspread
 from google.oauth2.service_account import Credentials
+from ai_assistant import ask_ai
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
@@ -312,8 +313,9 @@ async def send_slots_message(query):
     )
 
 
-async def handle_chat(query):
-    # Здесь позже будет подключён OpenAI API для обработки вопроса пользователя.
+async def handle_chat(query, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["chat_mode"] = True
+    print("AI chat mode enabled")
     await query.message.reply_text(
         "Здравствуйте! 🌷\n"
         "Я личный AI-помощник Анастасии Александровны.\n"
@@ -321,6 +323,43 @@ async def handle_chat(query):
         "формате обучения и подходе к занятиям.\n\n"
         "Задайте Ваш вопрос, и я постараюсь помочь."
     )
+
+
+async def handle_chat_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    if not context.user_data.get("chat_mode"):
+        return
+
+    question = update.message.text.strip()
+    print(f"AI question received: {question}")
+
+    if not question:
+        await update.message.reply_text(
+            "Пожалуйста, напишите Ваш вопрос текстом."
+        )
+        return
+
+    await update.message.reply_text("Минутку, я готовлю ответ 🌷")
+
+    try:
+        print("Calling OpenAI")
+        answer = await ask_ai(question)
+    except Exception as error:
+        print(
+            "Error asking AI:",
+            type(error).__name__,
+            str(error),
+        )
+        await update.message.reply_text(
+            "Не удалось получить ответ. Пожалуйста, попробуйте немного позже "
+            "или напишите Анастасии Александровне напрямую."
+        )
+        return
+
+    print("AI response generated")
+    await update.message.reply_text(answer)
 
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -349,7 +388,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_slots_message(query)
 
     elif query.data == "chat":
-        await handle_chat(query)
+        await handle_chat(query, context)
 
     elif query.data == "signup":
         await query.message.reply_text(
@@ -725,6 +764,12 @@ def main():
     # Обычный /start, когда пользователь не находится в сценарии записи.
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("about", about))
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_chat_message,
+        )
+    )
 
     # Остальные кнопки меню.
     app.add_handler(CallbackQueryHandler(buttons))
