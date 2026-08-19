@@ -1,64 +1,72 @@
 import os
 from pathlib import Path
-
 from openai import AsyncOpenAI
 
+SYSTEM_PROMPT_FILE = Path(__file__).parent / "AI_SYSTEM_PROMPT.md"
+KNOWLEDGE_BASE_FILE = Path(__file__).parent / "knowledge_base.md"
 
-PROJECT_DIR = Path(__file__).resolve().parent
-SYSTEM_PROMPT_PATH = PROJECT_DIR / "AI_SYSTEM_PROMPT.md"
-KNOWLEDGE_BASE_PATH = PROJECT_DIR / "knowledge_base.md"
+KIE_API_KEY = os.getenv("KIE_AI_ASSISTANT_KEY")
 
-KIE_AI_ASSISTANT_KEY = os.getenv("KIE_AI_ASSISTANT_KEY", "").strip()
-client = (
-    AsyncOpenAI(
-        api_key=KIE_AI_ASSISTANT_KEY,
-        base_url="https://api.kie.ai/gemini-2.5-flash/v1",
+client = None
+
+if KIE_API_KEY:
+    client = AsyncOpenAI(
+        api_key=KIE_API_KEY,
+        base_url="https://api.kie.ai"
     )
-    if KIE_AI_ASSISTANT_KEY
-    else None
-)
 
 
-def load_text_file(file_path: Path):
+def load_file(path: Path) -> str:
     try:
-        return file_path.read_text(encoding="utf-8")
-    except OSError as error:
-        print("Kie.ai error: unable to load", file_path.name, str(error))
-        raise
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
 
 
-async def ask_ai(question: str):
-    """Send a parent question to Kie.ai and return only the answer text."""
-    if client is None:
-        error = "KIE_AI_ASSISTANT_KEY is not set"
-        print("Kie.ai error:", error)
-        raise RuntimeError(error)
+SYSTEM_PROMPT = load_file(SYSTEM_PROMPT_FILE)
+KNOWLEDGE_BASE = load_file(KNOWLEDGE_BASE_FILE)
 
-    system_prompt = load_text_file(SYSTEM_PROMPT_PATH)
-    knowledge_base = load_text_file(KNOWLEDGE_BASE_PATH)
+
+async def ask_ai(question: str) -> str:
+    """
+    Отправляет вопрос родителя в Kie.ai с системным промптом
+    и базой знаний Анастасии Александровны.
+    """
+
+    if not client:
+        raise RuntimeError("KIE_AI_ASSISTANT_KEY is not set")
 
     try:
+        print("Calling Kie.ai")
+
         response = await client.chat.completions.create(
             model="gemini-2.5-flash",
             messages=[
                 {
                     "role": "system",
-                    "content": system_prompt,
+                    "content": SYSTEM_PROMPT
                 },
                 {
                     "role": "system",
-                    "content": knowledge_base,
+                    "content": KNOWLEDGE_BASE
                 },
                 {
                     "role": "user",
-                    "content": question,
-                },
+                    "content": question
+                }
             ],
-            temperature=0.3,
         )
-    except Exception as error:
-        print("Kie.ai error:", type(error).__name__, str(error))
-        raise
 
-    print("Kie.ai response generated")
-    return response.choices[0].message.content
+        answer = response.choices[0].message.content
+
+        print("Kie.ai response generated")
+
+        return answer
+
+    except Exception as error:
+        print(
+            "Kie.ai error:",
+            type(error).__name__,
+            str(error)
+        )
+        raise

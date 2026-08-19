@@ -318,6 +318,16 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "about":
         await query.message.reply_text(ABOUT_TEXT)
+    elif query.data == "chat":
+        context.user_data["ai_chat"] = True
+
+        await query.message.reply_text(
+            "Здравствуйте! 🌷\n\n"
+            "Я личный AI-помощник Анастасии Александровны.\n"
+            "Я могу ответить на вопросы о занятиях, стоимости, "
+            "формате обучения, расписании и подходе к занятиям.\n\n"
+            "Напишите Ваш вопрос, и я постараюсь помочь."
+        )
 
     elif query.data == "reviews":
         await query.message.reply_text("💬 Отзывы родителей:")
@@ -343,6 +353,35 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await send_slots_message(query)
 
+
+
+
+async def ai_chat_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if not context.user_data.get("ai_chat"):
+        return
+
+    question = update.message.text.strip()
+
+    if not question:
+        return
+
+    try:
+        from ai_assistant import ask_ai
+
+        answer = await ask_ai(question)
+
+        await update.message.reply_text(answer)
+
+    except Exception as error:
+        print("AI chat error:", type(error).__name__, str(error))
+
+        await update.message.reply_text(
+            "Извините, сейчас не удалось получить ответ. "
+            "Пожалуйста, попробуйте немного позже 🌷"
+        )
 
 # =========================
 # ЗАПИСЬ НА УРОК
@@ -714,6 +753,14 @@ def main():
 
     # Остальные кнопки меню.
     app.add_handler(CallbackQueryHandler(buttons))
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            ai_chat_message
+        )
+    )
+
 
     print("Bot started")
     app.run_polling()
