@@ -157,7 +157,7 @@ def get_available_slots():
         return slots
 
     except Exception as error:
-        print("Error loading slots:", type(error).__name__)
+        print("Error loading slots:", type(error).__name__, str(error))
         return None
 
 
